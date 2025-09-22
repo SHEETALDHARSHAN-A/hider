@@ -1014,67 +1014,59 @@ Your solution should be efficient, well-commented, and handle edge cases.
       // Extract parts from the response
       const codeMatch = responseContent.match(/```(?:\w+)?\s*([\s\S]*?)```/);
       const code = codeMatch ? codeMatch[1].trim() : responseContent;
-      
-      // Extract thoughts, looking for bullet points or numbered lists
-      const thoughtsRegex = /(?:Thoughts:|Key Insights:|Reasoning:|Approach:)([\s\S]*?)(?:Time complexity:|$)/i;
-      const thoughtsMatch = responseContent.match(thoughtsRegex);
-      let thoughts: string[] = [];
-      
-      if (thoughtsMatch && thoughtsMatch[1]) {
-        // Extract bullet points or numbered items
-        const bulletPoints = thoughtsMatch[1].match(/(?:^|\n)\s*(?:[-*•]|\d+\.)\s*(.*)/g);
-        if (bulletPoints) {
-          thoughts = bulletPoints.map(point => 
-            point.replace(/^\s*(?:[-*•]|\d+\.)\s*/, '').trim()
-          ).filter(Boolean);
-        } else {
-          // If no bullet points found, split by newlines and filter empty lines
-          thoughts = thoughtsMatch[1].split('\n')
-            .map((line) => line.trim())
-            .filter(Boolean);
-        }
-      }
-      
+
+      // Helper to extract a section by header and parse numbered/bulleted items
+      const extractSection = (text: string, headerRegex: RegExp) => {
+        const match = text.match(headerRegex);
+        if (!match || !match[1]) return '';
+        return match[1].trim();
+      };
+
+      const parseListItems = (sectionText: string) => {
+        if (!sectionText) return [] as string[];
+        // Try numbered list
+        const numbered = sectionText.match(/(?:^|\n)\s*\d+\.\s*(.+)/g);
+        if (numbered) return numbered.map(s => s.replace(/^(?:\s*\d+\.\s*)/, '').trim());
+
+        // Try bullet points
+        const bullets = sectionText.match(/(?:^|\n)\s*(?:[-*•])\s*(.+)/g);
+        if (bullets) return bullets.map(s => s.replace(/^(?:\s*[-*•]\s*)/, '').trim());
+
+        // Fallback: split by newline and keep non-empty lines
+        return sectionText.split('\n').map(l => l.trim()).filter(Boolean);
+      };
+
+      // Extract Thoughts/Key Insights/Approach/Reasoning
+      const thoughtsSection = extractSection(responseContent, /(?:Thoughts:|Key Insights:|Reasoning:|Approach:)\s*([\s\S]*?)(?=\n\s*(?:Time complexity:|Space complexity:|$))/i);
+      const thoughts = parseListItems(thoughtsSection);
+
+      // Extract Explanation Steps explicitly (prefer numbered steps)
+      const explanationSection = extractSection(responseContent, /(?:Explanation Steps:|Explanation:|Steps:|Step-by-step:?)\s*([\s\S]*?)(?=\n\s*(?:Reasoning:|Time complexity:|Space complexity:|Category:|$))/i);
+      const explanationSteps = parseListItems(explanationSection);
+
+      // Extract reasoning if present
+      const reasoningSection = extractSection(responseContent, /Reasoning:\s*([\s\S]*?)(?=\n\s*(?:Time complexity:|Space complexity:|$))/i) || '';
+
       // Extract complexity information
-      const timeComplexityPattern = /Time complexity:?\s*([^\n]+(?:\n[^\n]+)*?)(?=\n\s*(?:Space complexity|$))/i;
-      const spaceComplexityPattern = /Space complexity:?\s*([^\n]+(?:\n[^\n]+)*?)(?=\n\s*(?:[A-Z]|$))/i;
-      
-      let timeComplexity = "O(n) - Linear time complexity because we only iterate through the array once. Each element is processed exactly one time, and the hashmap lookups are O(1) operations.";
-      let spaceComplexity = "O(n) - Linear space complexity because we store elements in the hashmap. In the worst case, we might need to store all elements before finding the solution pair.";
-      
-      const timeMatch = responseContent.match(timeComplexityPattern);
-      if (timeMatch && timeMatch[1]) {
-        timeComplexity = timeMatch[1].trim();
-        if (!timeComplexity.match(/O\([^)]+\)/i)) {
-          timeComplexity = `O(n) - ${timeComplexity}`;
-        } else if (!timeComplexity.includes('-') && !timeComplexity.includes('because')) {
-          const notationMatch = timeComplexity.match(/O\([^)]+\)/i);
-          if (notationMatch) {
-            const notation = notationMatch[0];
-            const rest = timeComplexity.replace(notation, '').trim();
-            timeComplexity = `${notation} - ${rest}`;
-          }
-        }
+      const timeComplexityPattern = /Time complexity:?\s*([^\n]+)/i;
+      const spaceComplexityPattern = /Space complexity:?\s*([^\n]+)/i;
+
+      let timeComplexity = (responseContent.match(timeComplexityPattern) || [])[1] || "O(n) - Linear time complexity because we only iterate through the array once. Each element is processed exactly one time, and the hashmap lookups are O(1) operations.";
+      let spaceComplexity = (responseContent.match(spaceComplexityPattern) || [])[1] || "O(n) - Linear space complexity because we store elements in the hashmap. In the worst case, we might need to store all elements before finding the solution pair.";
+
+      // Normalize complexities to include Big-O notation and brief explanation
+      if (timeComplexity && !/O\([^\)]+\)/i.test(timeComplexity)) {
+        timeComplexity = `O(n) - ${timeComplexity}`;
       }
-      
-      const spaceMatch = responseContent.match(spaceComplexityPattern);
-      if (spaceMatch && spaceMatch[1]) {
-        spaceComplexity = spaceMatch[1].trim();
-        if (!spaceComplexity.match(/O\([^)]+\)/i)) {
-          spaceComplexity = `O(n) - ${spaceComplexity}`;
-        } else if (!spaceComplexity.includes('-') && !spaceComplexity.includes('because')) {
-          const notationMatch = spaceComplexity.match(/O\([^)]+\)/i);
-          if (notationMatch) {
-            const notation = notationMatch[0];
-            const rest = spaceComplexity.replace(notation, '').trim();
-            spaceComplexity = `${notation} - ${rest}`;
-          }
-        }
+      if (spaceComplexity && !/O\([^\)]+\)/i.test(spaceComplexity)) {
+        spaceComplexity = `O(n) - ${spaceComplexity}`;
       }
 
       const formattedResponse = {
         code: code,
         thoughts: thoughts.length > 0 ? thoughts : ["Solution approach based on efficiency and readability"],
+        explanation_steps: explanationSteps.length > 0 ? explanationSteps : (reasoningSection ? [reasoningSection] : ["Step-by-step explanation not provided by model; try increasing detail in prompt."] ),
+        reasoning: reasoningSection || "",
         time_complexity: timeComplexity,
         space_complexity: spaceComplexity
       };
@@ -1087,7 +1079,7 @@ Your solution should be efficient, well-commented, and handle edge cases.
           error: "Processing was canceled by the user."
         };
       }
-      
+
       if (error?.response?.status === 401) {
         return {
           success: false,
@@ -1117,9 +1109,9 @@ Your solution should be efficient, well-commented, and handle edge cases.
         });
       }
 
-      // Improved prompt that works with or without options
-      const promptText = `
-Please solve the following aptitude question. Focus on providing a clear, step-by-step solution.
+    // Stronger prompt: require explicit numbered mathematical steps with calculations
+    const promptText = `
+Please solve the following aptitude question. You MUST provide a numbered list of mathematical steps showing any intermediate calculations. Use plain numbers (1., 2., 3., ...) for each step and show the arithmetic or algebra used. If options are provided, indicate the final option letter as the Answer.
 
 QUESTION:
 ${problemInfo.problem_statement}
@@ -1130,17 +1122,26 @@ ${problemInfo.options && problemInfo.options.length > 0 ?
 
 ${problemInfo.correct_answer ? `CORRECT ANSWER: ${problemInfo.correct_answer}\n` : ''}
 
-Please provide your response in this exact format:
+REQUIRED RESPONSE FORMAT (follow exactly):
 
-1. Answer: [Your final answer here, either the option letter or the calculated value]
-2. Explanation Steps: 
-   - Step 1: [First step of the solution]
-   - Step 2: [Next step]
-   - Continue as needed...
-3. Reasoning: [Detailed explanation of how you arrived at the answer]
-4. Category: [Type of aptitude question, e.g., Time and Work, Probability, etc.]
+1. Answer: [final answer, option letter or numeric value]
+2. Explanation Steps:
+  1. [Step 1 — show calculation or algebra, e.g. compute values or simplify expressions]
+  2. [Step 2 — continue calculations with numeric substitutions and intermediate results]
+  3. [Step 3 — final arithmetic leading to the Answer]
+  (Add as many numbered steps as needed.)
+3. Reasoning: [Short explanation of why the steps solve the problem]
+4. Category: [e.g., Time and Work, Speed Distance Time, Profit & Loss, Probability]
 
-If the question involves calculations, please show your work. If it's a reasoning question, explain your thought process clearly.`;
+Example:
+1. Answer: 30
+2. Explanation Steps:
+  1. Convert speed from km/h to m/s: 36 km/h = 10 m/s
+  2. Use formula distance = speed * time: distance = 10 * 3 = 30
+3. Reasoning: Converted units then applied distance formula.
+4. Category: Speed and Distance
+
+If you cannot provide numeric steps, explicitly state why and show as much calculation as possible.`;
 
       let responseContent;
 
@@ -1310,40 +1311,36 @@ If the question involves calculations, please show your work. If it's a reasonin
       const answerMatch = responseContent.match(/Answer:?\s*([^\n]+)/i);
       const answer = answerMatch ? answerMatch[1].trim() : problemInfo.correct_answer;
 
-      // Extract explanation steps, looking for numbered lists
-      const stepsRegex = /(?:Explanation Steps?:?)\s*([\s\S]*?)(?=\n\s*(?:Reasoning:|$))/i;
-      const stepsMatch = responseContent.match(stepsRegex);
-      let explanationSteps: string[] = [];
 
-      if (stepsMatch && stepsMatch[1]) {
-        // Extract numbered items
-        const numberedPoints = stepsMatch[1].match(/(?:^|\n)\s*\d+\.\s*(.*)/g);
-        if (numberedPoints) {
-          explanationSteps = numberedPoints.map((step: string) =>
-            step.replace(/^\s*\d+\.\s*/, '').trim()
-          ).filter(Boolean);
-        } else {
-          // If no numbered points found, split by newlines and filter empty lines
-          explanationSteps = stepsMatch[1].split('\n')
-            .map((line: string) => line.trim())
-            .filter(Boolean);
-        }
-      }
+      // Reuse extractSection and parseListItems helpers from solution helper area
+      const extractSection = (text: string, headerRegex: RegExp) => {
+        const match = text.match(headerRegex);
+        if (!match || !match[1]) return '';
+        return match[1].trim();
+      };
 
-      // Extract reasoning
-      const reasoningPattern = /Reasoning:?\s*([^\n]+(?:\n[^\n]+)*?)(?=\n\s*(?:Category:|$))/i;
-      const reasoningMatch = responseContent.match(reasoningPattern);
-      const reasoning = reasoningMatch ? reasoningMatch[1].trim() : "Step-by-step solution approach";
+      const parseListItems = (sectionText: string) => {
+        if (!sectionText) return [] as string[];
+        const numbered = sectionText.match(/(?:^|\n)\s*\d+\.\s*(.+)/g);
+        if (numbered) return numbered.map(s => s.replace(/^(?:\s*\d+\.\s*)/, '').trim());
+        const bullets = sectionText.match(/(?:^|\n)\s*(?:[-*•])\s*(.+)/g);
+        if (bullets) return bullets.map(s => s.replace(/^(?:\s*[-*•]\s*)/, '').trim());
+        return sectionText.split('\n').map(l => l.trim()).filter(Boolean);
+      };
 
-      // Extract category
+      const stepsSection = extractSection(responseContent, /(?:Explanation Steps:|Explanation:|Steps:|Step-by-step:?)\s*([\s\S]*?)(?=\n\s*(?:Reasoning:|Category:|$))/i);
+      const explanationSteps = parseListItems(stepsSection);
+
+      const reasoningSection = extractSection(responseContent, /Reasoning:\s*([\s\S]*?)(?=\n\s*(?:Category:|$))/i) || '';
+
       const categoryPattern = /Category:?\s*([^\n]+)/i;
       const categoryMatch = responseContent.match(categoryPattern);
       const category = categoryMatch ? categoryMatch[1].trim() : problemInfo.category || "General Aptitude";
 
       const formattedResponse = {
         answer: answer,
-        explanation_steps: explanationSteps.length > 0 ? explanationSteps : ["Solution approach"],
-        reasoning: reasoning,
+        explanation_steps: explanationSteps.length > 0 ? explanationSteps : (reasoningSection ? [reasoningSection] : ["Solution approach"]),
+        reasoning: reasoningSection || "Step-by-step solution approach",
         category: category,
         question_type: 'aptitude'
       };
